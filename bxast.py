@@ -9,21 +9,14 @@ from bxerrors import Range
 class AST(abc.ABC):
     position: Optional[Range]
 
-    @abc.abstractmethod
-    def generate_TAC(self):
-        return
 
 @dc.dataclass
 class Statement(AST):
-    @abc.abstractmethod
-    def generate_TAC(self):
-        return
+    pass
 
 @dc.dataclass
 class Expression(AST):
-    @abc.abstractmethod
-    def generate_TAC(self):
-        return
+    pass
 
 @dc.dataclass
 class Name(AST):
@@ -58,9 +51,6 @@ class EVar(Expression):
 @dc.dataclass
 class ENum(Expression):
     value: int
-
-    def generate_TAC(self):
-        return self.value
     
 
 @dc.dataclass
@@ -68,8 +58,6 @@ class EUnOp(Expression):
     unop: str
     rvalue: Expression
 
-    def generate_TAC(self):
-        return 
     
 
 @dc.dataclass
