@@ -64,6 +64,14 @@ class Munch:
         """Visit an assignment statement"""
         self.assign_or_declare(node, declare=False)
 
+    def munch(self):
+        """Generate TAC JSON from the AST"""
+        instructions = self.generate_code()
+        return {
+            "proc": "main",
+            "body": instructions if len(instructions) > 0 else [{"opcode": "nop", "args": [], "result": None}]
+        }
+
     # ================  Methods that must be overridden by subclasses ==========
     
     @abstractmethod

@@ -2,7 +2,6 @@
 import ply.yacc as yacc
 from bxlexer import Lexer
 from bxast import *
-from bxmunch import TopDownMunch #,BottomUpMuch
 
 from bxerrors import DefaultReporter, Range, Reporter
 #import bxast # We will write this module later
@@ -79,6 +78,11 @@ class Parser:
         
     def p_expr_number(self, p):
         """expr : NUMBER"""
+        if not (- (2**63)<=p[1] < 2**63):
+            self.reporter(
+                f"Number _{p[1]}_ too big! -- skipping",
+                position = self._position(p)
+            )
         p[0] = ENum(position=self._position(p),value=int(p[1]))
 
     def p_expression_uniop(self, p):
@@ -143,7 +147,7 @@ class Parser:
             self._position(p),
             name=p[2],
             type=p[6],
-            init=p[4]
+            rvalue=p[4]
         )
 
     def p_program(self, p):
@@ -174,25 +178,3 @@ class Parser:
         else:
             self.reporter('syntax error at end of file')
 
-
-
-
-
-# =========================================================
-import sys
-
-def _test_parser():
-    if len(sys.argv)-1 != 1:
-        print(f"Usage: {sys.argv[0]} [filename.bx...]", file = sys.stderr)
-        exit(1)
-
-    with open(sys.argv[1], "r") as stream:
-        contents = stream.read()
-    reporter = DefaultReporter(source = contents)
-    tree = Parser(reporter).parse(contents)
-    if reporter.nerrors:
-        sys.exit(1)
-    return TopDownMunch(tree)
-
-if __name__=="__main__":
-    _test_parser()

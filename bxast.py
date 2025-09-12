@@ -28,7 +28,7 @@ class Name(AST):
 class SVarDecl(Statement):
     name: Name
     type: str
-    init: Expression
+    rvalue: Expression
 
 
 @dc.dataclass
