@@ -33,7 +33,7 @@ class SVarDecl(Statement):
 
 @dc.dataclass
 class SAssignment(Statement):
-    lvalue: Name
+    name: Name
     rvalue: Expression
 
 

@@ -122,7 +122,7 @@ class Parser:
             )
         p[0] = SAssignment(
             self._position(p),
-            lvalue=p[1],
+            name=p[1],
             rvalue=p[3]
         )
 

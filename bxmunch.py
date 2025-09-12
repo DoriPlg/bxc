@@ -56,20 +56,24 @@ class Munch:
         """Default visitor for unhandled node types"""
         raise NotImplementedError(f"No visitor method for {type(node).__name__}")
 
+    def visit_SVarDecl(self, node):
+        """Visit a variable declaration statement"""
+        self.assign_or_declare(node, declare=True)
+
+    def visit_SAssignment(self, node):
+        """Visit an assignment statement"""
+        self.assign_or_declare(node, declare=False)
 
     # ================  Methods that must be overridden by subclasses ==========
     
     @abstractmethod
-    def emit(self, instruction: str):
+    def emit(self, opcode: str, args: list, result: str = None):
         """Emit a TAC instruction"""
         pass
     @abstractmethod
-    def visit_SVarDecl(self, node):
-        """Visit a variable declaration statement"""
-        pass
-    @abstractmethod
-    def visit_SAssignment(self, node):
-        """Visit an assignment statement"""
+    def assign_or_declare(self, node, declare: bool):
+        """Handle both variable declarations and assignments.
+        If `assign` is True, it's an assignment; otherwise, it's a declaration."""
         pass
     @abstractmethod
     def visit_SPrint(self, node):
@@ -100,27 +104,32 @@ class Munch:
 class TopDownMunch(Munch):
     """A simple top-down AST muncher that generates three-address code (TAC)"""
 
-    def emit(self, instruction: str):
-        """Emit a TAC instruction"""
-        self.instructions.append(instruction)
+    def emit(self, instruction: str, args: list = [], result: str = None):
+        self.instructions.append({
+            "opcode": instruction,
+            "args": args,
+            "result": result
+        })
 
     # ===============  Statement Visitors ============
-    def visit_SVarDecl(self, node):
-        init_temp = self.visit(node.init)
-        if node.name.name in self.vars_temps:
-            raise ValueError(f"Variable '{node.name.name}' already declared")
-        self.vars_temps[node.name.name] = self.new_temp()
-        self.emit(f"{self.vars_temps[node.name.name]} = copy {init_temp};")
 
-    def visit_SAssignment(self, node):
+    def assign_or_declare(self, node, declare: bool):
+        """
+        Handle both variable declarations and assignments.
+        If `assign` is True, it's an assignment; otherwise, it's a declaration."""
         rvalue_temp = self.visit(node.rvalue)
-        if node.lvalue.name not in self.vars_temps:
-            raise ValueError(f"Variable '{node.lvalue.name}' not declared")
-        self.emit(f"{self.vars_temps[node.lvalue.name]} = copy {rvalue_temp};")
+        if declare:
+            if node.name.name in self.vars_temps:
+                raise ValueError(f"Variable '{node.name.name}' already declared")
+            self.vars_temps[node.name.name] = self.new_temp()
+        else:
+            if node.name.name not in self.vars_temps:
+                raise ValueError(f"Variable '{node.name.name}' not declared")
+        self.emit("copy", [rvalue_temp], self.vars_temps[node.name.name])
 
     def visit_SPrint(self, node):
         value_temp = self.visit(node.value)
-        self.emit(f"print {value_temp};")
+        self.emit("print", [value_temp])
 
 
 
@@ -133,7 +142,7 @@ class TopDownMunch(Munch):
     
     def visit_ENum(self, node):
         temp = self.new_temp()
-        self.emit(f"{temp} = const {node.value};")
+        self.emit("const", [node.value], temp)
         return temp
     
     def visit_EUnOp(self, node):
@@ -141,7 +150,7 @@ class TopDownMunch(Munch):
         result_temp = self.new_temp()
 
         op = op_map.get(node.unop, node.unop)
-        self.emit(f"{result_temp} = {op} {rvalue_temp};")
+        self.emit(op, [rvalue_temp], result_temp)
         return result_temp
     
     def visit_EBinOp(self, node):
@@ -150,7 +159,7 @@ class TopDownMunch(Munch):
         result_temp = self.new_temp()
         
         op = op_map.get(node.binop, node.binop)
-        self.emit(f"{result_temp} = {op} {left_temp}, {right_temp};")
+        self.emit(op, [left_temp, right_temp], result_temp)
         return result_temp
     
     def visit_EPar(self, node):
@@ -159,29 +168,37 @@ class TopDownMunch(Munch):
 
 class BottomUpMunch(Munch):
     """A bottom-up AST muncher that generates three-address code (TAC)"""
-    def emit(self, instruction: list):
-        """Emit a TAC instruction"""
-        self.instructions.extend(instruction)
+    def emit(self, instructions):
+        self.instructions.extend(instructions)
 
     # ===============  Statement Visitors ============
-    def visit_SVarDecl(self, node):
-        init_temp, init_instr = self.visit(node.init)
-        if node.name.name in self.vars_temps:
-            raise ValueError(f"Variable '{node.name.name}' already declared")
-        self.vars_temps[node.name.name] = self.new_temp()
-        instr = init_instr + [f"{self.vars_temps[node.name.name]} = copy {init_temp};"]
-        self.emit(instr)
 
-    def visit_SAssignment(self, node):
+    def assign_or_declare(self, node, declare: bool):
+        """
+        Handle both variable declarations and assignments.
+        If `assign` is True, it's an assignment; otherwise, it's a declaration."""
         rvalue_temp, rvalue_instr = self.visit(node.rvalue)
-        if node.lvalue.name not in self.vars_temps:
-            raise ValueError(f"Variable '{node.lvalue.name}' not declared")
-        instr = rvalue_instr + [f"{self.vars_temps[node.lvalue.name]} = copy {rvalue_temp};"]
+        if declare:
+            if node.name.name in self.vars_temps:
+                raise ValueError(f"Variable '{node.name.name}' already declared")
+            self.vars_temps[node.name.name] = self.new_temp()
+        else:   
+            if node.name.name not in self.vars_temps:
+                raise ValueError(f"Variable '{node.name.name}' not declared")
+        instr = rvalue_instr + [{
+            "opcode": "copy",
+            "args": [rvalue_temp],
+            "result": self.vars_temps[node.name.name]
+        }]
         self.emit(instr)
 
     def visit_SPrint(self, node):
         value_temp, value_instr = self.visit(node.value)
-        instr = value_instr + [f"print {value_temp};"]
+        instr = value_instr + [{
+            "opcode": "print",
+            "args": [value_temp],
+            "result": None
+        }]
         self.emit(instr)
 
 
@@ -193,7 +210,11 @@ class BottomUpMunch(Munch):
     
     def visit_ENum(self, node):
         temp = self.new_temp()
-        instr = [f"{temp} = const {node.value};"]
+        instr = [{
+            "opcode": "const",
+            "args": [node.value],
+            "result": temp
+        }]
         return temp,instr
     
     def visit_EUnOp(self, node):
@@ -201,7 +222,11 @@ class BottomUpMunch(Munch):
         result_temp = self.new_temp()
 
         op = op_map.get(node.unop, node.unop)
-        instr = rvalue_instr + [f"{result_temp} = {op} {rvalue_temp};"]
+        instr = rvalue_instr + [{
+            "opcode": op,
+            "args": [rvalue_temp],
+            "result": result_temp
+        }]
         return result_temp,instr
 
     def visit_EBinOp(self, node):
@@ -210,7 +235,11 @@ class BottomUpMunch(Munch):
         result_temp = self.new_temp()
         
         op = op_map.get(node.binop, node.binop)
-        instr = left_instr + right_instr + [f"{result_temp} = {op} {left_temp}, {right_temp};"]
+        instr = left_instr + right_instr + [{
+            "opcode": op,
+            "args": [left_temp, right_temp],
+            "result": result_temp
+        }]
         return result_temp,instr
     
     def visit_EPar(self, node):
