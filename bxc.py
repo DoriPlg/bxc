@@ -18,7 +18,7 @@ def _test_parser():
     tree = Parser(reporter).parse(contents)
     if reporter.nerrors:
         sys.exit(1)
-    munch_type = sys.argv[1] if len(sys.argv) > 1 else "--tmm"
+    munch_type = sys.argv[1] if len(sys.argv) > 2 else "--tmm"
     if munch_type == "--tmm":
         mm = TopDownMunch(tree)
     elif munch_type == "--bmm":
