@@ -65,11 +65,23 @@ class Munch:
 
     def visit_SVarDecl(self, node):
         """Visit a variable declaration statement"""
-        self.assign_or_declare(node, declare=True)
+        self.handle_decl_or_assign(node, declare=True)
 
     def visit_SAssignment(self, node):
         """Visit an assignment statement"""
-        self.assign_or_declare(node, declare=False)
+        self.handle_decl_or_assign(node, declare=False)
+
+    def handle_decl_or_assign(self, node, declare: bool):
+        """Handle both variable declarations and assignments.
+        If `assign` is True, it's an assignment; otherwise, it's a declaration."""
+        if declare:
+            if node.name.name in self.vars_temps[-1]:
+                raise ValueError(f"Variable '{node.name.name}' already declared in this scope")
+            self.vars_temps[-1][node.name.name] = self.new_temp()
+        try:
+            self.assign_or_declare(node, self.find_variable_temp(node.name.name))
+        except ValueError as e:
+            raise ValueError(f"Variable '{node.name.name}' not declared") from e
 
     def munch(self):
         """Generate TAC JSON from the AST"""
@@ -79,6 +91,49 @@ class Munch:
             "body": instructions if len(instructions) > 0 else [{"opcode": "nop", "args": [], "result": None}]
         }
 
+    def visit_SBlock(self, node):
+        """Visit a block statement"""
+        self.vars_temps.append({})
+        for stmt in node.statements:
+            self.visit(stmt)
+        self.vars_temps.pop()
+
+    def visit_SIfElse(self, node):
+        """Visit an if-else statement"""
+        cond_temp = self.visit(node.condition)
+        else_label = self.fresh_label("else")
+        end_label = self.fresh_label("end_if")
+
+        self.emit("jeq", [cond_temp], else_label)
+        self.visit(node.if_block)
+        self.emit("jmp", [], end_label)
+
+        self.emit("label", [], else_label)
+        if node.else_block:
+            self.visit(node.else_block)
+        self.emit("label", [], end_label)
+
+    def visit_SWhile(self, node):
+        """Visit a while statement"""
+        start_label = self.fresh_label("start_while")
+        end_label = self.fresh_label("end_while")
+
+        self.emit("label", [], start_label)
+        cond_temp = self.visit(node.condition)
+        self.emit("jeq", [cond_temp], end_label)
+        self.visit(node.body)
+        self.emit("jmp", [], start_label)
+        self.emit("label", [], end_label)
+
+    def visit_SBreak(self, node):
+        """Visit a break statement"""
+        # This is a placeholder; actual implementation would need loop context
+        raise NotImplementedError("Break statement handling not implemented")
+    
+    def visit_SContinue(self, node):
+        """Visit a continue statement"""
+        # This is a placeholder; actual implementation would need loop context
+        raise NotImplementedError("Continue statement handling not implemented")
     # ================  Methods that must be overridden by subclasses ==========
     
     @abstractmethod
@@ -86,7 +141,7 @@ class Munch:
         """Emit a TAC instruction"""
         pass
     @abstractmethod
-    def assign_or_declare(self, node, declare: bool):
+    def assign_or_declare(self, node, temp: str):
         """Handle both variable declarations and assignments.
         If `assign` is True, it's an assignment; otherwise, it's a declaration."""
         pass
@@ -123,17 +178,6 @@ class Munch:
                 return scope[var_name]
         raise ValueError(f"Variable '{var_name}' not declared")
     
-    def handle_decl_or_assign(self, node, declare: bool):
-        """Handle both variable declarations and assignments.
-        If `assign` is True, it's an assignment; otherwise, it's a declaration."""
-        if declare:
-            if node.name.name in self.vars_temps[-1]:
-                raise ValueError(f"Variable '{node.name.name}' already declared in this scope")
-            self.vars_temps[-1][node.name.name] = self.new_temp()
-        try:
-            return self.find_variable_temp(node.name.name)
-        except ValueError as e:
-            raise ValueError(f"Variable '{node.name.name}' not declared") from e
 
             
 class TopDownMunch(Munch):
@@ -148,12 +192,11 @@ class TopDownMunch(Munch):
 
     # ===============  Statement Visitors ============
 
-    def assign_or_declare(self, node, declare: bool):
+    def assign_or_declare(self, node, temp):
         """
         Handle both variable declarations and assignments.
         If `assign` is True, it's an assignment; otherwise, it's a declaration."""
         rvalue_temp = self.visit(node.rvalue)
-        temp = self.handle_decl_or_assign(node, declare)
         self.emit("copy", [rvalue_temp], temp)
 
     def visit_SPrint(self, node):
@@ -227,12 +270,11 @@ class BottomUpMunch(Munch):
 
     # ===============  Statement Visitors ============
 
-    def assign_or_declare(self, node, declare: bool):
+    def assign_or_declare(self, node, temp):
         """
         Handle both variable declarations and assignments.
         If `assign` is True, it's an assignment; otherwise, it's a declaration."""
         rvalue_temp, rvalue_instr = self.visit(node.rvalue)
-        temp = self.handle_decl_or_assign(node, declare)
         instr = rvalue_instr + [{
             "opcode": "copy",
             "args": [rvalue_temp],
