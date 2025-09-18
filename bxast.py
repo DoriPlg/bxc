@@ -41,6 +41,28 @@ class SAssignment(Statement):
 class SPrint(Statement):
     value: Expression
 
+@dc.dataclass
+class SBlock(Statement):
+    statements: list[Statement]
+
+@dc.dataclass
+class SIfElse(Statement):
+    condition: Expression
+    if_block: SBlock
+    else_block: Optional[Statement]  # Can be SIfElse or SBlock or None
+
+@dc.dataclass
+class SWhile(Statement):
+    condition: Expression
+    body: SBlock
+
+@dc.dataclass
+class SBreak(Statement):
+    pass
+@dc.dataclass
+class SContinue(Statement):
+    pass
+
 
 # ===============   Expressions      ==========
 @dc.dataclass
@@ -70,7 +92,9 @@ class EBinOp(Expression):
 @dc.dataclass
 class EPar(Expression):
     value: Expression
+
+
     
-    
+
         
 

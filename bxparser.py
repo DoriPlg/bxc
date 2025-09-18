@@ -189,22 +189,44 @@ class Parser:
 
     def p_stmt_while(self,p):
         """stmt : WHILE LPAREN expr RPAREN block"""
-        # Todo: complete after logic
+        p[0] = SWhile(
+            self._position(p),
+            condition=p[3],
+            body=SBlock(
+                position=self._position(p),
+                statements=p[5]
+            )
+        )
 
     def p_stmt_jump(self, p):
         """stmt :   BREAK       SEMICOLON
                 |   CONTINUE    SEMICOLON"""
-        # Todo: complete after logic
+        if p[1] == 'break':
+            p[0] = SBreak(self._position(p))
+        else:
+            p[0] = SContinue(self._position(p))
 
     def p_ifelse(self,p):
         """ifelse :   IF LPAREN expr RPAREN block ifrest"""
-        # Todo: complete after logic
+        p[0] = SIfElse(
+            self._position(p),
+            condition=p[3],
+            if_block=SBlock(
+                position=self._position(p),
+                statements=p[5]
+            ),
+            else_block=p[6] if len(p) > 6 else None
+        )
+        
 
     def p_ifrest(self, p):
         """ifrest   :   
                         | ELSE ifelse
                         | ELSE block"""
-        # Todo: complete after logic
+        if len(p) == 1: # empty case
+            p[0] = None
+        else: # nonempty case
+            p[0] = p[2]
 
 
     def p_program(self, p):
