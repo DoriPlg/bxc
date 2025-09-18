@@ -14,16 +14,24 @@ class Parser:
     }
 
     BINOP = {
-        '+'  : 'addition'                 ,
-        '-'  : 'subtraction'              ,
-        '*'  : 'multiplication'           ,
-        '/'  : 'division'                 ,
-        '%'  : 'modulus'                  ,
-        '>>' : 'logical-right-shift'      ,
-        '<<' : 'logical-left-shift'       ,
-        '&'  : 'bitwise-and'              ,
-        '|'  : 'bitwise-or'               ,
-        '^'  : 'bitwise-xor'              ,
+        '+'     : 'addition'               ,
+        '-'     : 'subtraction'            ,
+        '*'     : 'multiplication'         ,
+        '/'     : 'division'               ,
+        '%'     : 'modulus'                ,
+        '>>'    : 'logical-right-shift'    ,
+        '<<'    : 'logical-left-shift'     ,
+        '&'     : 'bitwise-and'            ,
+        '|'     : 'bitwise-or'             ,
+        '^'     : 'bitwise-xor'            ,
+        '=='    : 'boolean-eq'             ,
+        '!='    : 'boolean-noneq'          ,    
+        '<'     : 'boolean-less'           ,    
+        '<='    : 'boolean-lesseq'         ,    
+        '>'     : 'boolean-great'          ,    
+        '>='    : 'boolean-greateq'        ,    
+        '&&'    : 'boolean-and'            ,
+        '||'    : 'boolean-or'
     }
 
     start = 'program'
@@ -33,14 +41,18 @@ class Parser:
     tokens = Lexer.tokens
 
     precedence = (
-        ('left', 'OR'),
-        ('left', 'XOR'),
-        ('left','AND'),
-        ('left', 'RSHIFT','LSHIFT'),
-        ('left', 'PLUS', 'MINUS'), # left-assoc., low precedence
-        ('left', 'TIMES', 'DIV', 'MODULUS'), # left-assoc., medium precedence
-        ('right', 'UMINUS'), # right-assoc., high precedence
-        ('right','TILDE')
+        ('left',    'BOOLOR'),
+        ('left',    'BOOLAND'),
+        ('left',    'OR'),
+        ('left',    'XOR'),
+        ('left',    'AND'),
+        ('nonassoc',    'BOOLEQ', 'NEQ'),
+        ('nonassoc',    'LT', 'LEQ', 'GT','GEQ'),
+        ('left',    'RSHIFT','LSHIFT'),
+        ('left',    'PLUS', 'MINUS'), # left-assoc., low precedence
+        ('left',    'TIMES', 'DIV', 'MODULUS'), # left-assoc., medium precedence
+        ('right',   'UMINUS', 'BOOLNOT'), # right-assoc., high precedence
+        ('right',   'TILDE')
     )
 
     def __init__(self, reporter: Reporter):
@@ -74,8 +86,15 @@ class Parser:
     def p_expr_ident(self, p):
         """expr : name"""
         p[0] = EVar(position=self._position(p), name=p[1])
-        
-        
+
+    def p_expr_true(self, p):
+        """expr : TRUE"""
+        p[0] = ENum(position=self._position(p), value=1)
+
+    def p_expr_false(self, p):
+        """expr : FALSE"""
+        p[0] = ENum(position=self._position(p), value=0)
+
     def p_expr_number(self, p):
         """expr : NUMBER"""
         if not (- (2**63)<=p[1] < 2**63):
@@ -87,7 +106,8 @@ class Parser:
 
     def p_expression_uniop(self, p):
         """expr : MINUS expr %prec UMINUS
-                | TILDE expr %prec TILDE"""
+                | TILDE expr %prec TILDE
+                | BOOLNOT expr %prec BOOLNOT"""
         p[0] = EUnOp(
             self._position(p),
             unop=self.UNIOP[p[1]],
@@ -96,15 +116,24 @@ class Parser:
 
     def p_expression_binop(self, p):
         """expr : expr PLUS     expr
-                | expr MINUS     expr
+                | expr MINUS    expr
                 | expr TIMES    expr
-                | expr DIV    expr
-                | expr MODULUS    expr
+                | expr DIV      expr
+                | expr MODULUS  expr
                 | expr AND      expr
-                | expr OR     expr
+                | expr OR       expr
                 | expr XOR      expr
-                | expr LSHIFT     expr
-                | expr RSHIFT     expr"""
+                | expr LSHIFT   expr
+                | expr RSHIFT   expr
+                | expr BOOLEQ   expr
+                | expr NEQ      expr
+                | expr LT       expr
+                | expr LEQ      expr
+                | expr GT       expr
+                | expr GEQ      expr
+                | expr BOOLAND  expr
+                | expr BOOLOR   expr
+                """
         p[0] = EBinOp(
             self._position(p),
             binop=self.BINOP[p[2]],
@@ -150,9 +179,37 @@ class Parser:
             rvalue=p[4]
         )
 
+    def p_stmt_block(self,p):
+        """stmt :   block"""
+        p[0]=p[1]
+
+    def p_stmt_ifelse(self, p):
+        """stmt : ifelse"""
+        p[0]=p[1]
+
+    def p_stmt_while(self,p):
+        """stmt : WHILE LPAREN expr RPAREN block"""
+        # Todo: complete after logic
+
+    def p_stmt_jump(self, p):
+        """stmt :   BREAK       SEMICOLON
+                |   CONTINUE    SEMICOLON"""
+        # Todo: complete after logic
+
+    def p_ifelse(self,p):
+        """ifelse :   IF LPAREN expr RPAREN block ifrest"""
+        # Todo: complete after logic
+
+    def p_ifrest(self, p):
+        """ifrest   :   
+                        | ELSE ifelse
+                        | ELSE block"""
+        # Todo: complete after logic
+
+
     def p_program(self, p):
-        """program : DEF MAIN LPAREN RPAREN LCB stmts RCB"""
-        p[0] = p[6]
+        """program : DEF MAIN LPAREN RPAREN block"""
+        p[0] = p[5]
 
     def p_stmt_s(self, p):
         """stmts   :
@@ -162,6 +219,10 @@ class Parser:
         else: # nonempty case
             p[0] = p[1]
             p[0].append(p[2])
+
+    def p_block(self, p):
+        """block : LCB stmts RCB"""
+        p[0] = p[2]
 
     def p_error(self, p):
         if p:

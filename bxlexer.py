@@ -12,6 +12,13 @@ class Lexer:
             'main' ,
             'print',
             'var'  ,
+            'if'    ,
+            'else',
+            'while',
+            'break',
+            'continue',
+            'true',
+            'false'
         )
     }
     
@@ -39,6 +46,16 @@ class Lexer:
         'DIV'    ,
         'TIMES'     ,
         'TILDE'     ,
+
+        'BOOLEQ'    ,
+        'NEQ'       ,
+        'LT'        ,
+        'LEQ'       ,
+        'GT'        ,
+        'GEQ'       ,
+        'BOOLAND'   ,
+        'BOOLOR'    ,
+        'BOOLNOT'
     ) + tuple(keywords.values())
 
     t_LPAREN    = re.escape('(')
@@ -60,6 +77,16 @@ class Lexer:
     t_DIV     = re.escape('/')
     t_TIMES      = re.escape('*')
     t_TILDE      = re.escape('~')
+
+    t_BOOLEQ  =     re.escape('==')
+    t_NEQ     =     re.escape('!=')
+    t_LT      =     re.escape('<')
+    t_LEQ     =     re.escape('<=')
+    t_GT      =     re.escape('>')
+    t_GEQ     =     re.escape('>=')
+    t_BOOLAND =     re.escape('&&')
+    t_BOOLOR  =     re.escape('||')
+    t_BOOLNOT =     re.escape('!')
 
     t_ignore = ' \t'            # Ignore all whitespaces
     t_ignore_comment = r'//.*'
