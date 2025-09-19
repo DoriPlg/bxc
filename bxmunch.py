@@ -1,6 +1,7 @@
 # To clear vision from no docstrings, extra spaces
 # pylint: disable=[C0115, C0303]     
 from bxast import AST
+from bxerrors import DefaultReporter, Range, Reporter
 from abc import abstractmethod
 
 
@@ -25,12 +26,14 @@ op_map = {
         
 
 class Munch:
-    def __init__(self, tree: AST):
+    def __init__(self, tree: AST, reporter : Reporter):
         self.tree = tree
+        self.reporter = reporter
         self.temp_counter = 0
         self.label_counter = 0
         self.instructions = []
         self.vars_temps = [{}]  # Map variable names to their current temp names
+        self.loop_stack = []  # Stack to manage loop labels for break/continue 
 
     def new_temp(self) -> str:
         """Generate a new temporary variable name"""
@@ -61,8 +64,20 @@ class Munch:
     
     def generic_visit(self, node):
         """Default visitor for unhandled node types"""
-        raise NotImplementedError(f"No visitor method for {type(node).__name__}")
+        self.reporter(f"No visitor method for {type(node).__name__}", position=node.position)
+        exit(1)
 
+    def munch(self):
+        """Generate TAC JSON from the AST"""
+        instructions = self.generate_code()
+        return {
+            "proc": "main",
+            "body": instructions if len(instructions) > 0 else [{"opcode": "nop", "args": [], "result": None}]
+        }
+
+
+
+    #    =============  Statement Visitors ===================== 
     def visit_SVarDecl(self, node):
         """Visit a variable declaration statement"""
         self.handle_decl_or_assign(node, declare=True)
@@ -76,20 +91,19 @@ class Munch:
         If `assign` is True, it's an assignment; otherwise, it's a declaration."""
         if declare:
             if node.name.name in self.vars_temps[-1]:
-                raise ValueError(f"Variable '{node.name.name}' already declared in this scope")
+                self.reporter(
+                    f"Double declare of var `{node.name.name}' -- skipping",
+                    position = node.position
+                )
+                return
             self.vars_temps[-1][node.name.name] = self.new_temp()
         try:
             self.assign_or_declare(node, self.find_variable_temp(node.name.name))
-        except ValueError as e:
-            raise ValueError(f"Variable '{node.name.name}' not declared") from e
-
-    def munch(self):
-        """Generate TAC JSON from the AST"""
-        instructions = self.generate_code()
-        return {
-            "proc": "main",
-            "body": instructions if len(instructions) > 0 else [{"opcode": "nop", "args": [], "result": None}]
-        }
+        except ValueError:
+            self.reporter(
+                f"Undeclared usage of var `{node.name.name}' -- skipping",
+                position = node.position
+            )
 
     def visit_SBlock(self, node):
         """Visit a block statement"""
@@ -117,7 +131,7 @@ class Munch:
         """Visit a while statement"""
         start_label = self.fresh_label("start_while")
         end_label = self.fresh_label("end_while")
-
+        self.loop_stack.append((start_label, end_label))
         self.emit("label", [], start_label)
         cond_temp = self.visit(node.condition)
         self.emit("jeq", [cond_temp], end_label)
@@ -127,13 +141,25 @@ class Munch:
 
     def visit_SBreak(self, node):
         """Visit a break statement"""
-        # This is a placeholder; actual implementation would need loop context
-        raise NotImplementedError("Break statement handling not implemented")
+        if not self.loop_stack:
+            self.reporter(
+                "Break statement not within a loop -- skipping",
+                position = node.position
+            )
+            return
+        _, end_label = self.loop_stack[-1]
+        self.emit("jmp", [], end_label)
     
     def visit_SContinue(self, node):
         """Visit a continue statement"""
-        # This is a placeholder; actual implementation would need loop context
-        raise NotImplementedError("Continue statement handling not implemented")
+        if not self.loop_stack:
+            self.reporter(
+                "Continue statement not within a loop -- skipping",
+                position = node.position
+            )
+            return
+        start_label, _ = self.loop_stack[-1]
+        self.emit("jmp", [], start_label)
     # ================  Methods that must be overridden by subclasses ==========
     
     @abstractmethod
@@ -210,8 +236,12 @@ class TopDownMunch(Munch):
     def visit_EVar(self, node):
         try :
             return self.find_variable_temp(node.name.name)
-        except ValueError as e:
-            raise ValueError(f"Variable '{node.name.name}' not declared") from e
+        except ValueError:
+            self.reporter(
+                f"Undeclared usage of var `{node.name.name}' -- skipping",
+                position = node.position
+            )
+            return self.new_temp()  # Return a dummy temp to continue processing
     
     def visit_ENum(self, node):
         temp = self.new_temp()
@@ -268,6 +298,16 @@ class BottomUpMunch(Munch):
     def emit(self, instructions):
         self.instructions.extend(instructions)
 
+    def visit(self, node):
+        result = super().visit(node)
+        temp, instr = result if isinstance(result, tuple) else (result, [])
+        if not instr:
+            self.reporter(
+                f"No instructions generated for {type(node).__name__},"+
+                "check visitor method", position=node.position
+            )
+        return temp, instr
+
     # ===============  Statement Visitors ============
 
     def assign_or_declare(self, node, temp):
@@ -296,8 +336,12 @@ class BottomUpMunch(Munch):
     def visit_EVar(self, node):
         try :
             return self.find_variable_temp(node.name.name),[]
-        except ValueError as e:
-            raise ValueError(f"Variable '{node.name.name}' not declared") from e
+        except ValueError:
+            self.reporter(
+                f"Undeclared usage of var `{node.name.name}' -- skipping",
+                position = node.position
+            )
+            return self.new_temp(),[]  # Return a dummy temp to continue processing
     
     def visit_ENum(self, node):
         temp = self.new_temp()

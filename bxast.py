@@ -30,12 +30,10 @@ class SVarDecl(Statement):
     type: str
     rvalue: Expression
 
-
 @dc.dataclass
 class SAssignment(Statement):
     name: Name
     rvalue: Expression
-
 
 @dc.dataclass
 class SPrint(Statement):
@@ -63,38 +61,26 @@ class SBreak(Statement):
 class SContinue(Statement):
     pass
 
-
 # ===============   Expressions      ==========
 @dc.dataclass
 class EVar(Expression):
     name: Name
-    
 
 @dc.dataclass
 class ENum(Expression):
     value: int
-    
 
 @dc.dataclass
 class EUnOp(Expression):
     unop: str
     rvalue: Expression
 
-    
-
 @dc.dataclass
 class EBinOp(Expression):
     binop: str
     lvalue: Expression
     rvalue: Expression
-    
 
 @dc.dataclass
 class EPar(Expression):
     value: Expression
-
-
-    
-
-        
-
