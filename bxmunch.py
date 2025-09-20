@@ -505,8 +505,7 @@ class TypeMunch(Munch):
         return None  # Indicate error
     
     def visit_ENum(self, node):
-        node.type = 'int'
-        return 'int'
+        return node.type
     
     def visit_EUnOp(self, node):
         rvalue_type = self.visit(node.rvalue)

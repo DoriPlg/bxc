@@ -1,6 +1,6 @@
 import abc
 import dataclasses as dc
-from typing import Optional
+from typing import Optional, Union
 from bxerrors import Range
 
 
@@ -16,7 +16,7 @@ class Statement(AST):
 
 @dc.dataclass
 class Expression(AST):
-    type: Optional[str] = None
+    type: Optional[str]
 
 @dc.dataclass
 class Name(AST):
@@ -44,15 +44,16 @@ class SBlock(Statement):
     statements: list[Statement]
 
 @dc.dataclass
-class SIfElse(Statement):
-    condition: Expression
-    if_block: SBlock
-    else_block: Optional[Statement]  # Can be SIfElse or SBlock or None
-
-@dc.dataclass
 class SWhile(Statement):
     condition: Expression
     body: SBlock
+
+@dc.dataclass
+class SIfElse(Statement):
+    condition: Expression
+    if_block: SBlock
+    else_block: Optional[Union['SIfElse', SBlock]]
+
 
 @dc.dataclass
 class SBreak(Statement):

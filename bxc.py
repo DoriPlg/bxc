@@ -7,7 +7,7 @@ from bxast import *
 from bxparser import Parser
 from bxmunch import *
 from bxerrors import DefaultReporter
-
+from tac2x64 import compile_tac
 def _run_parser():
     if len(sys.argv)-1 < 1:
         print(f"Usage: {sys.argv[0]} [filename.bx...]", file = sys.stderr)
@@ -26,7 +26,9 @@ def _run_parser():
     mm = make_muncher(tree, reporter, munch_type)
 
     munch_gen_json(mm, outfile)
-    sys.exit(0 if reporter.nerrors == 0 else 1)
+    if reporter.nerrors:
+        sys.exit(1)
+    return outfile
 
 def parse(contents: str, reporter: Reporter):
     """Parse the given program contents and return the AST.
@@ -62,7 +64,7 @@ def munch_for_type(tree: AST, reporter: Reporter):
 def munch_gen_json(mm: Munch, outfile: str):
     with open(outfile, "w", encoding="UTF-8") as outfile:
         json.dump(mm.munch(), outfile, indent=4)
-    print(f"Wrote TAC to {outfile.name}")
+    print(f"Wrote TAC to {outfile}")
 
 if __name__=="__main__":
-    _run_parser()
+    compile_tac(_run_parser())

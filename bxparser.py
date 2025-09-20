@@ -88,11 +88,11 @@ class Parser:
 
     def p_expr_true(self, p):
         """expr : TRUE"""
-        p[0] = ENum(position=self._position(p), type=None, value=1)
+        p[0] = ENum(position=self._position(p), type='bool', value=1)
 
     def p_expr_false(self, p):
         """expr : FALSE"""
-        p[0] = ENum(position=self._position(p), type=None, value=0)
+        p[0] = ENum(position=self._position(p), type='bool', value=0)
 
     def p_expr_number(self, p):
         """expr : NUMBER"""
@@ -101,30 +101,12 @@ class Parser:
                 f"Number _{p[1]}_ too big! -- skipping",
                 position = self._position(p)
             )
-        p[0] = ENum(position=self._position(p), type=None, value=int(p[1]))
+        p[0] = ENum(position=self._position(p), type='int', value=int(p[1]))
 
     def p_expression_uniop(self, p):
         """expr : MINUS expr %prec UMINUS
                 | TILDE expr %prec TILDE
                 | BOOLNOT expr %prec BOOLNOT"""
-        etype = None
-        match p[1]:
-            case '-':
-                if p[2].type == 'int':
-                    etype = 'int'
-            case '~':
-                if p[2].type == 'int':
-                    etype = 'int'
-            case '!':
-                if p[2].type == 'bool':
-                    etype = 'bool'
-        if etype is None:
-            self.reporter(
-                f"Type error: unary operator `{p[1]}' cannot be applied to type `{p[2].type}'"+
-                    " -- skipping",
-                position = self._position(p)
-            )
-            etype = 'error'
         p[0] = EUnOp(
             self._position(p), type=None,
             unop=self.UNIOP[p[1]],
@@ -151,28 +133,6 @@ class Parser:
                 | expr BOOLAND  expr
                 | expr BOOLOR   expr
                 """
-        match p[2]:
-            case 'PLUS' | 'MINUS' | 'TIMES' | 'DIV' | 'MODULUS' | 'AND'\
-                  | 'OR' | 'XOR' | 'LSHIFT' | 'RSHIFT':
-                if p[1].type != 'int' or p[3].type != 'int':
-                    self.reporter(
-                        f"Type error: binary operator `{p[2]}' cannot be applied to types "+
-                        f"`{p[1].type}' and `{p[3].type}' -- skipping",
-                        position = self._position(p)
-                    )
-                    etype = 'error'
-                else:
-                    etype = 'int'
-            case 'BOOLEQ' | 'NEQ' | 'LT' | 'LEQ' | 'GT' | 'GEQ' | 'BOOLAND' | 'BOOLOR':
-                if p[1].type != 'bool' or p[3].type != 'bool':
-                    self.reporter(
-                        f"Type error: binary operator `{p[2]}' cannot be applied to types "+
-                        f"`{p[1].type}' and `{p[3].type}' -- skipping",
-                        position = self._position(p)
-                    )
-                    etype = 'error'
-                else:
-                    etype = 'bool'
         p[0] = EBinOp(
             position=self._position(p), type=None,
             binop=self.BINOP[p[2]],
@@ -180,7 +140,7 @@ class Parser:
         )
 
     def p_expr_parens(self, p):
-        """expr : LPAREN expr LPAREN"""
+        """expr : LPAREN expr RPAREN"""
         p[0] = p[2]
 
     def p_stmt_assign(self, p):
@@ -231,10 +191,7 @@ class Parser:
         p[0] = SWhile(
             self._position(p),
             condition=p[3],
-            body=SBlock(
-                position=self._position(p),
-                statements=p[5]
-            )
+            body=p[5]
         )
 
     def p_stmt_jump(self, p):
@@ -248,13 +205,10 @@ class Parser:
     def p_ifelse(self,p):
         """ifelse :   IF LPAREN expr RPAREN block ifrest"""
         p[0] = SIfElse(
-            self._position(p),
+            position=self._position(p),
             condition=p[3],
-            if_block=SBlock(
-                position=self._position(p),
-                statements=p[5]
-            ),
-            else_block=p[6] if len(p) > 6 else None
+            if_block=p[5],
+            else_block=p[6]
         )
         
 
@@ -262,6 +216,7 @@ class Parser:
         """ifrest   :   
                         | ELSE ifelse
                         | ELSE block"""
+        
         if len(p) == 1: # empty case
             p[0] = None
         else: # nonempty case
@@ -283,20 +238,16 @@ class Parser:
 
     def p_block(self, p):
         """block : LCB stmts RCB"""
-        p[0] = p[2]
+        p[0] = SBlock(
+            position=self._position(p),
+            statements=p[2]
+        )
 
     def p_error(self, p):
         if p:
-            position = Range.of_position(
-                p.lineno,
-                self.lexer.column_of_pos(p.lexpos),
-            )
+            position = Range.of_position(p.lineno, self.lexer.column_of_pos(p.lexpos))
+            self.reporter(f"syntax error at `{p.value}'", position)
 
-            self.reporter(
-                f'syntax error',
-                position = position,
-            )
-            #self.parser.errok()
         else:
             self.reporter('syntax error at end of file')
 

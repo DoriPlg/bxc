@@ -9,6 +9,7 @@ class Lexer:
         x: x.upper() for x in (
             'def'  ,
             'int'  ,
+            'bool' ,
             'main' ,
             'print',
             'var'  ,
@@ -120,11 +121,9 @@ class Lexer:
             position = position,
         )
         t.lexer.skip(1)
-    
+
     def t_newline(self, t):
         r'\n+'
         t.lexer.lineno += len(t.value)
         self.bol.append(t.lexer.lexpos)
-    # no return, signifying ignore
-    # This will use Python introspection (reflection) to find out all the
-    # ‘tokens' and ‘t_stuff' in this module and create a suitable lexer from i
+        
