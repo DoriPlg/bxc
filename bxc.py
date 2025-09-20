@@ -20,6 +20,8 @@ def _run_parser():
     reporter = DefaultReporter(source = contents)
     tree = parse(contents, reporter)
 
+    munch_for_type(tree, reporter)
+
     munch_type = sys.argv[1] if len(sys.argv) > 2 else "--tmm"
     mm = make_muncher(tree, reporter, munch_type)
 
@@ -36,12 +38,26 @@ def parse(contents: str, reporter: Reporter):
     return tree
 
 def make_muncher(tree: AST, reporter: Reporter, munch_type: str) -> Munch:
+    """
+    Create and return a muncher of the given type.
+    If the type is unknown, report an error using the given reporter and return exit.
+    """
     mm = TopDownMunch(tree, reporter) if munch_type == "--tmm" else \
         BottomUpMunch(tree, reporter) if munch_type == "--bmm" else  None
     if mm is None:
         print(f"Unknown muncher type '{munch_type}'", file = sys.stderr)
         sys.exit(1)
     return mm
+
+def munch_for_type(tree: AST, reporter: Reporter):
+    """
+    Perform type checking and inference on the AST.
+    If there are any errors, report them using the given reporter and return exit.
+    """
+    TypeMunch(tree, reporter).generate_code()
+    if reporter.nerrors:
+        sys.exit(1)
+
 
 def munch_gen_json(mm: Munch, outfile: str):
     with open(outfile, "w", encoding="UTF-8") as outfile:

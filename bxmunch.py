@@ -1,7 +1,7 @@
 # To clear vision from no docstrings, extra spaces
 # pylint: disable=[C0115, C0303]     
 from bxast import AST
-from bxerrors import DefaultReporter, Range, Reporter
+from bxerrors import Range, Reporter
 from abc import abstractmethod
 
 KNOWN_TYPES = {'int', 'bool'}
@@ -22,7 +22,15 @@ op_map = {
     'bitwise-or': 'or',
     'bitwise-xor': 'xor',
     'logical-left-shift': 'shl',
-    'logical-right-shift': 'shr'
+    'logical-right-shift': 'shr',
+    'equal': 'z',
+    'not-equal': 'nz',
+    'less-than': 'l',
+    'less-equal': 'le',
+    'greater-than': 'ln',
+    'greater-equal': 'nle',
+    'boolean-and': '&&',
+    'boolean-or': '||'
 }
         
 
@@ -201,7 +209,8 @@ class Munch:
     def visit_EPar(self, node):
         """Visit a parenthesized expression"""
         pass
-          
+
+# ================  Muncher Implementations ============        
 class TopDownMunch(Munch):
     """A simple top-down AST muncher that generates three-address code (TAC)"""
     def __init__(self, tree: AST, reporter : Reporter):
@@ -279,6 +288,23 @@ class TopDownMunch(Munch):
                 self.emit("label", [], end_label)
                 self.emit("or", [t1, t2], t1)
                 return t1
+            case 'equal' | 'not-equal' | 'less-than' | 'less-equal' |\
+                  'greater-than' | 'greater-equal':
+                left_temp = self.visit(node.lvalue)
+                right_temp = self.visit(node.rvalue)
+                result_temp = self.new_temp()
+                
+                self.emit('sub', [left_temp, right_temp], result_temp)
+                op = op_map.get(node.binop, node.binop)
+                false, true = self.fresh_label("false"), self.fresh_label("true")
+                self.emit(f"j{op}", [result_temp], true)
+                self.emit("const", [0], result_temp)
+                self.emit("jmp", [], false)
+                self.emit("label", [], true)
+                self.emit("const", [1], result_temp)
+                self.emit("label", [], false)
+
+                return result_temp
             case _:
                 left_temp = self.visit(node.lvalue)
                 right_temp = self.visit(node.rvalue)
@@ -398,6 +424,26 @@ class BottomUpMunch(Munch):
                 instr += [{"opcode": "label", "args": [], "result": end_label}]
                 instr += [{"opcode": "or", "args": [t1, t2], "result": t1}]
                 return t1,instr
+            case 'equal' | 'not-equal' | 'less-than' | 'less-equal' |\
+                    'greater-than' | 'greater-equal':
+                left_temp, left_instr = self.visit(node.lvalue)
+                right_temp, right_instr = self.visit(node.rvalue)
+                result_temp = self.new_temp()
+
+                instr = left_instr + right_instr + [{
+                    "opcode": "sub",
+                    "args": [left_temp, right_temp],
+                    "result": result_temp
+                }]
+                op = op_map.get(node.binop, node.binop)
+                false, true = self.fresh_label("false"), self.fresh_label("true")
+                instr += [{"opcode": f"j{op}", "args": [result_temp], "result": true},
+                            {"opcode": "const", "args": [0], "result": result_temp},
+                            {"opcode": "jmp", "args": [], "result": false},
+                            {"opcode": "label", "args": [], "result": true},
+                            {"opcode": "const", "args": [1], "result": result_temp},
+                            {"opcode": "label", "args": [], "result": false}]
+                return result_temp,instr
             case _:
                 left_temp, left_instr = self.visit(node.lvalue)
                 right_temp, right_instr = self.visit(node.rvalue)
