@@ -36,8 +36,6 @@ class Parser:
 
     start = 'program'
 
-    names = {}
-
     tokens = Lexer.tokens
 
     precedence = (
@@ -59,6 +57,7 @@ class Parser:
         self.lexer    = Lexer(reporter = reporter)
         self.parser   = yacc.yacc(module = self)
         self.reporter = reporter
+        self.names    = {} 
 
     def parse(self, program: str):
         with self.reporter.checkpoint() as checkpoint:
@@ -102,12 +101,30 @@ class Parser:
                 f"Number _{p[1]}_ too big! -- skipping",
                 position = self._position(p)
             )
-        p[0] = ENum(position=self._position(p),value=int(p[1]))
+        p[0] = ENum(position=self._position(p), value=int(p[1]))
 
     def p_expression_uniop(self, p):
         """expr : MINUS expr %prec UMINUS
                 | TILDE expr %prec TILDE
                 | BOOLNOT expr %prec BOOLNOT"""
+        etype = None
+        match p[1]:
+            case '-':
+                if p[2].type == 'int':
+                    etype = 'int'
+            case '~':
+                if p[2].type == 'int':
+                    etype = 'int'
+            case '!':
+                if p[2].type == 'bool':
+                    etype = 'bool'
+        if etype is None:
+            self.reporter(
+                f"Type error: unary operator `{p[1]}' cannot be applied to type `{p[2].type}'"+
+                    " -- skipping",
+                position = self._position(p)
+            )
+            etype = 'error'
         p[0] = EUnOp(
             self._position(p),
             unop=self.UNIOP[p[1]],
@@ -134,8 +151,30 @@ class Parser:
                 | expr BOOLAND  expr
                 | expr BOOLOR   expr
                 """
+        match p[2]:
+            case 'PLUS' | 'MINUS' | 'TIMES' | 'DIV' | 'MODULUS' | 'AND'\
+                  | 'OR' | 'XOR' | 'LSHIFT' | 'RSHIFT':
+                if p[1].type != 'int' or p[3].type != 'int':
+                    self.reporter(
+                        f"Type error: binary operator `{p[2]}' cannot be applied to types "+
+                        f"`{p[1].type}' and `{p[3].type}' -- skipping",
+                        position = self._position(p)
+                    )
+                    etype = 'error'
+                else:
+                    etype = 'int'
+            case 'BOOLEQ' | 'NEQ' | 'LT' | 'LEQ' | 'GT' | 'GEQ' | 'BOOLAND' | 'BOOLOR':
+                if p[1].type != 'bool' or p[3].type != 'bool':
+                    self.reporter(
+                        f"Type error: binary operator `{p[2]}' cannot be applied to types "+
+                        f"`{p[1].type}' and `{p[3].type}' -- skipping",
+                        position = self._position(p)
+                    )
+                    etype = 'error'
+                else:
+                    etype = 'bool'
         p[0] = EBinOp(
-            self._position(p),
+            position=self._position(p),
             binop=self.BINOP[p[2]],
             lvalue=p[1],
             rvalue=p[3]
@@ -143,7 +182,7 @@ class Parser:
 
     def p_expr_parens(self, p):
         """expr : LPAREN expr LPAREN"""
-        p[0] = EPar(self._position(p), value=p[2])
+        p[0] = p[2]
 
     def p_stmt_assign(self, p):
         """stmt : name EQUALS expr SEMICOLON"""
@@ -164,7 +203,8 @@ class Parser:
         p[0] = SPrint(self._position(p), value=p[3])
 
     def p_stmt_vardecl(self, p):
-        """stmt : VAR name EQUALS expr COLON INT SEMICOLON"""
+        """stmt :   VAR name EQUALS expr COLON INT SEMICOLON
+                |   VAR name EQUALS expr COLON BOOL SEMICOLON"""
         var_name = p[2].name
         if var_name in self.names.keys():
             self.reporter(

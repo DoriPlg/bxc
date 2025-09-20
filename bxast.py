@@ -16,7 +16,7 @@ class Statement(AST):
 
 @dc.dataclass
 class Expression(AST):
-    pass
+    type: Optional[str] = None
 
 @dc.dataclass
 class Name(AST):
@@ -81,6 +81,6 @@ class EBinOp(Expression):
     lvalue: Expression
     rvalue: Expression
 
-@dc.dataclass
-class EPar(Expression):
-    value: Expression
+# @dc.dataclass
+# class EPar(Expression):
+#     value: Expression

@@ -4,6 +4,7 @@ from bxast import AST
 from bxerrors import DefaultReporter, Range, Reporter
 from abc import abstractmethod
 
+KNOWN_TYPES = {'int', 'bool'}
 
 op_map = {
     'opposite': 'neg',
@@ -32,7 +33,7 @@ class Munch:
         self.temp_counter = 0
         self.label_counter = 0
         self.instructions = []
-        self.vars_temps = [{}]  # Map variable names to their current temp names
+        self.symbol_table: SymbolTable
         self.loop_stack = []  # Stack to manage loop labels for break/continue 
 
     def new_temp(self) -> str:
@@ -90,27 +91,31 @@ class Munch:
         """Handle both variable declarations and assignments.
         If `assign` is True, it's an assignment; otherwise, it's a declaration."""
         if declare:
-            if node.name.name in self.vars_temps[-1]:
+            res = self.symbol_table.declare(
+                node.name.name,
+                self.new_temp(), node.position
+            )
+            if not res:
                 self.reporter(
                     f"Double declare of var `{node.name.name}' -- skipping",
                     position = node.position
                 )
                 return
-            self.vars_temps[-1][node.name.name] = self.new_temp()
-        try:
-            self.assign_or_declare(node, self.find_variable_temp(node.name.name))
-        except ValueError:
+        var = self.symbol_table.lookup(node.name.name)
+        if var is None:
             self.reporter(
                 f"Undeclared usage of var `{node.name.name}' -- skipping",
                 position = node.position
             )
+            return
+        self.assign_or_declare(node, var['temp'])
 
     def visit_SBlock(self, node):
         """Visit a block statement"""
-        self.vars_temps.append({})
+        self.symbol_table.push_scope()
         for stmt in node.statements:
             self.visit(stmt)
-        self.vars_temps.pop()
+        self.symbol_table.pop_scope()
 
     def visit_SIfElse(self, node):
         """Visit an if-else statement"""
@@ -195,19 +200,12 @@ class Munch:
     def visit_EPar(self, node):
         """Visit a parenthesized expression"""
         pass
-
-
-    def find_variable_temp(self, var_name: str) -> str:
-        """Find the temp associated with a variable name in the current scope."""
-        for scope in reversed(self.vars_temps):
-            if var_name in scope:
-                return scope[var_name]
-        raise ValueError(f"Variable '{var_name}' not declared")
-    
-
-            
+          
 class TopDownMunch(Munch):
     """A simple top-down AST muncher that generates three-address code (TAC)"""
+    def __init__(self, tree: AST, reporter : Reporter):
+        super().__init__(tree, reporter)
+        self.symbol_table = TempTable()
 
     def emit(self, instruction: str, args: list = [], result: str = None):
         self.instructions.append({
@@ -234,14 +232,14 @@ class TopDownMunch(Munch):
     # ================  Expression Visitors ==========
 
     def visit_EVar(self, node):
-        try :
-            return self.find_variable_temp(node.name.name)
-        except ValueError:
-            self.reporter(
-                f"Undeclared usage of var `{node.name.name}' -- skipping",
-                position = node.position
-            )
-            return self.new_temp()  # Return a dummy temp to continue processing
+        var = self.symbol_table.lookup(node.name.name)
+        if var is not None:
+            return var['temp']
+        self.reporter(
+            f"Undeclared usage of var `{node.name.name}' -- skipping",
+            position = node.position
+        )
+        return self.new_temp()  # Return a dummy temp to continue processing
     
     def visit_ENum(self, node):
         temp = self.new_temp()
@@ -292,9 +290,12 @@ class TopDownMunch(Munch):
     def visit_EPar(self, node):
         return self.visit(node.value)
 
-
 class BottomUpMunch(Munch):
     """A bottom-up AST muncher that generates three-address code (TAC)"""
+    def __init__(self, tree: AST, reporter : Reporter):
+        super().__init__(tree, reporter)
+        self.symbol_table = TempTable()
+    
     def emit(self, instructions):
         self.instructions.extend(instructions)
 
@@ -334,14 +335,14 @@ class BottomUpMunch(Munch):
 
     # ===============  Expression Visitors ============
     def visit_EVar(self, node):
-        try :
-            return self.find_variable_temp(node.name.name),[]
-        except ValueError:
-            self.reporter(
-                f"Undeclared usage of var `{node.name.name}' -- skipping",
-                position = node.position
-            )
-            return self.new_temp(),[]  # Return a dummy temp to continue processing
+        var = self.symbol_table.lookup(node.name.name)
+        if var is not None:
+            return var['temp'], []
+        self.reporter(
+            f"Undeclared usage of var `{node.name.name}' -- skipping",
+            position = node.position
+        )
+        return self.new_temp(), []  # Return a dummy temp to continue processing
     
     def visit_ENum(self, node):
         temp = self.new_temp()
@@ -411,4 +412,193 @@ class BottomUpMunch(Munch):
     
     def visit_EPar(self, node):
         return self.visit(node.value)
-        
+
+class TypeMunch(Munch):
+    """A type-checking AST muncher that annotates the AST with types"""
+    def __init__(self, tree: AST, reporter : Reporter):
+        super().__init__(tree, reporter)
+        self.symbol_table = TypeTable()
+    
+    def emit(self, instructions):
+        pass  # No instructions to emit for type checking
+
+    def assign_or_declare(self, node, temp: str):
+        """
+        Handle both variable declarations and assignments.
+        If `assign` is True, it's an assignment; otherwise, it's a declaration."""
+        rvalue_type = self.visit(node.rvalue)
+        if rvalue_type is None:
+            return  # Error already reported in rvalue
+        if not fitting_type(node.type, rvalue_type):
+            self.reporter(
+                f"Type mismatch: cannot assign {rvalue_type} to {node.type}",
+                position = node.position
+            )
+
+    def visit_SPrint(self, node):
+        value_type = self.visit(node.value)
+        if value_type is None:
+            return  # Error already reported in value
+        if value_type not in KNOWN_TYPES:
+            self.reporter(
+                f"Type error: print expects int or bool, got {value_type}",
+                position = node.position
+            )
+
+    
+
+    # ===============  Expression Visitors ============
+    def visit_EVar(self, node):
+        var = self.symbol_table.lookup(node.name.name)
+        if var is not None:
+            node.type = var['type']
+            return var['type']
+        self.reporter(
+            f"Undeclared usage of var `{node.name.name}' -- skipping",
+            position = node.position
+        )
+        return None  # Indicate error
+    
+    def visit_ENum(self, node):
+        node.type = 'int'
+        return 'int'
+    
+    def visit_EUnOp(self, node):
+        rvalue_type = self.visit(node.rvalue)
+        if rvalue_type is None:
+            return None  # Error already reported in rvalue
+        match node.unop:
+            case 'opposite' |'bitwise-negation':
+                if rvalue_type != 'int':
+                    self.reporter(
+                        f"Type error: unary {node.unop} expects int, got {rvalue_type}",
+                        position = node.position
+                    )
+                    return None
+                node.type = 'int'
+                return 'int'
+            case 'boolean-not':
+                if rvalue_type != 'bool':
+                    self.reporter(
+                        f"Type error: unary '!' expects bool, got {rvalue_type}",
+                        position = node.position
+                    )
+                    return None
+                node.type = 'bool'
+                return 'bool'
+            case _:
+                self.reporter(
+                    f"Unknown unary operator `{node.unop}'",
+                    position = node.position
+                )
+                return None
+    
+    def visit_EBinOp(self, node):
+        ltype = self.visit(node.lvalue)
+        rtype = self.visit(node.rvalue)
+        if ltype is None or rtype is None:
+            return None  # Error already reported in sub-expressions
+        match node.binop:
+            case    'addition' | 'subtraction' | 'multiplication' |\
+                    'division' | 'modulus' | 'bitwise-and' | 'bitwise-or' |\
+                    'bitwise-xor' | 'logical-left-shift' | 'logical-right-shift'|\
+                    'less-than' | 'less-equal' | 'greater-than' | 'greater-equal':
+                if ltype != 'int' or rtype != 'int':
+                    self.reporter(
+                        f"Type error: binary {node.binop\
+                                              } expects int operands, got {ltype} and {rtype}",
+                        position = node.position
+                    )
+                    return None
+                node.type = 'int'
+                return 'int'
+            case    'boolean-and' | 'boolean-or':
+                if ltype != 'bool' or rtype != 'bool':
+                    self.reporter(
+                        f"Type error: binary {node.binop} expects bool operands, got {ltype} and {rtype}",
+                        position = node.position
+                    )
+                    return None
+                node.type = 'bool'
+                return 'bool'
+            case    'equal' | 'not-equal':
+                if ltype != rtype:
+                    self.reporter(
+                        f"Type error: binary {node.binop\
+                                              } expects operands of the same type, got {\
+                                                                        ltype} and {rtype}",
+                        position = node.position
+                    )
+                    return None
+                node.type = 'bool'
+                return 'bool'
+            case _:
+                self.reporter(
+                    f"Unknown binary operator `{node.binop}'",
+                    position = node.position
+                )
+                return None
+    
+    def visit_EPar(self, node):
+        return self.visit(node.value)
+    
+# ====================== Symbol Table ==================
+class SymbolTable:
+    def __init__(self):
+        self.scopes = [{}]  # Stack of symbol tables for nested scopes
+    
+    @abstractmethod
+    def declare(self, name: str, value: str, position: Range):
+        """Declare a variable in the current scope.
+        Returns True if successful, False if already declared in current scope."""
+        pass
+    
+    def lookup(self, name: str):
+        """Look up a variable in the symbol table stack.
+        Returns the variable info if found, None otherwise."""
+        for scope in reversed(self.scopes):
+            if name in scope:
+                return scope[name]
+        return None
+    
+    def push_scope(self):
+        """Push a new scope onto the stack."""
+        self.scopes.append({})
+    
+    def pop_scope(self):
+        """Pop the current scope from the stack."""
+        self.scopes.pop()
+
+class TypeTable(SymbolTable):
+    def declare(self, name: str, var_type: str, position: Range):
+        """
+         Declare a variable in the current scope.
+         Returns True if successful, False if already declared in current scope.
+         """
+        if name in self.scopes[-1]:
+            return False  # Already declared in current scope
+        self.scopes[-1][name] = {'type': var_type,
+                                 'position': position}
+        return True
+
+class TempTable(SymbolTable):
+    def declare(self, name: str, temp: str, position: Range):
+        """
+         Declare a variable in the current scope.
+         Returns True if successful, False if already declared in current scope.
+         """
+        if name in self.scopes[-1]:
+            return False  # Already declared in current scope
+        self.scopes[-1][name] = {'temp': temp,
+                                 'position': position}
+        return True
+
+
+# ================  Utility Functions ============
+def fitting_type(dest: str, expr_type: str) -> bool:
+    """Check if expr_type can be assigned to dest type"""
+    if dest == expr_type:
+        return True
+    if dest == 'bool' and expr_type == 'int':
+        return True
+    return False
