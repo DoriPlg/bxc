@@ -84,15 +84,15 @@ class Parser:
 
     def p_expr_ident(self, p):
         """expr : name"""
-        p[0] = EVar(position=self._position(p), name=p[1])
+        p[0] = EVar(position=self._position(p), type=None, name=p[1])
 
     def p_expr_true(self, p):
         """expr : TRUE"""
-        p[0] = ENum(position=self._position(p), value=1)
+        p[0] = ENum(position=self._position(p), type=None, value=1)
 
     def p_expr_false(self, p):
         """expr : FALSE"""
-        p[0] = ENum(position=self._position(p), value=0)
+        p[0] = ENum(position=self._position(p), type=None, value=0)
 
     def p_expr_number(self, p):
         """expr : NUMBER"""
@@ -101,7 +101,7 @@ class Parser:
                 f"Number _{p[1]}_ too big! -- skipping",
                 position = self._position(p)
             )
-        p[0] = ENum(position=self._position(p), value=int(p[1]))
+        p[0] = ENum(position=self._position(p), type=None, value=int(p[1]))
 
     def p_expression_uniop(self, p):
         """expr : MINUS expr %prec UMINUS
@@ -126,7 +126,7 @@ class Parser:
             )
             etype = 'error'
         p[0] = EUnOp(
-            self._position(p),
+            self._position(p), type=None,
             unop=self.UNIOP[p[1]],
             rvalue=p[2]
         )
@@ -174,10 +174,9 @@ class Parser:
                 else:
                     etype = 'bool'
         p[0] = EBinOp(
-            position=self._position(p),
+            position=self._position(p), type=None,
             binop=self.BINOP[p[2]],
-            lvalue=p[1],
-            rvalue=p[3]
+            lvalue=p[1], rvalue=p[3]
         )
 
     def p_expr_parens(self, p):

@@ -8,8 +8,8 @@ KNOWN_TYPES = {'int', 'bool'}
 
 op_map = {
     'opposite': 'neg',
-    'bitwise-negation': 'not'
-    # ,'boolean-not': '!'
+    'bitwise-negation': 'not',
+    'boolean-not': '!'
 }
 
 op_map = {
@@ -73,7 +73,8 @@ class Munch:
         instructions = self.generate_code()
         return {
             "proc": "main",
-            "body": instructions if len(instructions) > 0 else [{"opcode": "nop", "args": [], "result": None}]
+            "body": instructions if len(instructions) > 0 else [
+                {"opcode": "nop", "args": [], "result": None}]
         }
 
 
@@ -419,7 +420,7 @@ class TypeMunch(Munch):
         super().__init__(tree, reporter)
         self.symbol_table = TypeTable()
     
-    def emit(self, instructions):
+    def emit(self, *instructions):
         pass  # No instructions to emit for type checking
 
     def assign_or_declare(self, node, temp: str):
@@ -444,8 +445,6 @@ class TypeMunch(Munch):
                 f"Type error: print expects int or bool, got {value_type}",
                 position = node.position
             )
-
-    
 
     # ===============  Expression Visitors ============
     def visit_EVar(self, node):
