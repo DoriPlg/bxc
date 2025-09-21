@@ -103,7 +103,7 @@ class Munch:
             )
             if not res:
                 self.reporter(
-                    f"Double declare of var `{node.name.name}' -- skipping",
+                    f"Doubleee declare of var `{node.name.name}' -- skipping",
                     position = node.position
                 )
                 return
@@ -252,6 +252,11 @@ class TopDownMunch(Munch):
         self.emit("const", [node.value], temp)
         return temp
     
+    def visit_EBool(self, node):
+        temp = self.new_temp()
+        self.emit("const", [1 if node.value else 0], temp)
+        return temp
+    
     def visit_EUnOp(self, node):
         rvalue_temp = self.visit(node.rvalue)
         result_temp = self.new_temp()
@@ -379,6 +384,15 @@ class BottomUpMunch(Munch):
         instr = [{
             "opcode": "const",
             "args": [node.value],
+            "result": temp
+        }]
+        return temp,instr
+
+    def visit_EBool(self, node):
+        temp = self.new_temp()
+        instr = [{
+            "opcode": "const",
+            "args": [1 if node.value else 0],
             "result": temp
         }]
         return temp,instr
@@ -520,9 +534,9 @@ class TypeMunch(Munch):
         value_type = self.visit(node.value)
         if value_type is None:
             return  # Error already reported in value
-        if value_type not in KNOWN_TYPES:
+        if value_type != 'int' :
             self.reporter(
-                f"Type error: print expects int or bool, got {value_type}",
+                f"Type error: print expects int, got {value_type}",
                 position = node.position
             )
 
@@ -539,7 +553,10 @@ class TypeMunch(Munch):
         return None  # Indicate error
     
     def visit_ENum(self, node):
-        return node.type
+        return 'int'
+    
+    def visit_EBool(self, node):
+        return 'bool'
     
     def visit_EUnOp(self, node):
         rvalue_type = self.visit(node.rvalue)
@@ -554,7 +571,7 @@ class TypeMunch(Munch):
                     )
                     return None
                 node.type = 'int'
-                return 'int'
+                return node.type
             case 'boolean-not':
                 if rvalue_type != 'bool':
                     self.reporter(
@@ -563,7 +580,7 @@ class TypeMunch(Munch):
                     )
                     return None
                 node.type = 'bool'
-                return 'bool'
+                return node.type
             case _:
                 self.reporter(
                     f"Unknown unary operator `{node.unop}'",
@@ -588,8 +605,10 @@ class TypeMunch(Munch):
                         position = node.position
                     )
                     return None
-                node.type = 'int'
-                return 'int'
+                node.type = 'bool' if node.binop in {
+                    'boolean-less', 'boolean-lesseq', 'boolean-great', 'boolean-greateq'
+                } else 'int'
+                return node.type
             case    'boolean-and' | 'boolean-or':
                 if ltype != 'bool' or rtype != 'bool':
                     self.reporter(
@@ -598,7 +617,7 @@ class TypeMunch(Munch):
                     )
                     return None
                 node.type = 'bool'
-                return 'bool'
+                return node.type
             case    'boolean-eq' | 'boolean-noneq':
                 if ltype != rtype:
                     self.reporter(
@@ -609,7 +628,7 @@ class TypeMunch(Munch):
                     )
                     return None
                 node.type = 'bool'
-                return 'bool'
+                return node.type
             case _:
                 self.reporter(
                     f"Unknown binary operator `{node.binop}'",
@@ -656,7 +675,5 @@ class SymbolTable:
 def fitting_type(dest: str, expr_type: str) -> bool:
     """Check if expr_type can be assigned to dest type"""
     if dest == expr_type:
-        return True
-    if dest == 'bool' and expr_type == 'int':
         return True
     return False

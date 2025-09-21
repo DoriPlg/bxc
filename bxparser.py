@@ -88,11 +88,11 @@ class Parser:
 
     def p_expr_true(self, p):
         """expr : TRUE"""
-        p[0] = ENum(position=self._position(p), type='bool', value=1)
+        p[0] = EBool(position=self._position(p), type='bool', value=True)
 
     def p_expr_false(self, p):
         """expr : FALSE"""
-        p[0] = ENum(position=self._position(p), type='bool', value=0)
+        p[0] = EBool(position=self._position(p), type='bool', value=False)
 
     def p_expr_number(self, p):
         """expr : NUMBER"""
@@ -145,12 +145,6 @@ class Parser:
 
     def p_stmt_assign(self, p):
         """stmt : name EQUALS expr SEMICOLON"""
-        var_name = p[1].name
-        if (var_name not in self.names.keys()):
-            self.reporter(
-                f"Undeclared usage of var `{var_name}' -- skipping",
-                position = self._position(p)
-            )
         p[0] = SAssignment(
             self._position(p),
             name=p[1],
@@ -164,13 +158,6 @@ class Parser:
     def p_stmt_vardecl(self, p):
         """stmt :   VAR name EQUALS expr COLON INT SEMICOLON
                 |   VAR name EQUALS expr COLON BOOL SEMICOLON"""
-        var_name = p[2].name
-        if var_name in self.names.keys():
-            self.reporter(
-                f"Double declare of var `{var_name}' -- skipping",
-                position = self._position(p)
-            )
-        self.names[var_name] = p[6]
         p[0] = SVarDecl(
             self._position(p),
             name=p[2],

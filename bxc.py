@@ -21,11 +21,11 @@ def _run_parser():
     tree = parse(contents, reporter)
 
     munch_for_type(tree, reporter)
+    if reporter.nerrors:
+        sys.exit(1)
 
     munch_type = sys.argv[1] if len(sys.argv) > 2 else "--tmm"
-    mm = make_muncher(tree, reporter, munch_type)
-
-    munch_gen_json(mm, outfile)
+    munch_gen_json(make_muncher(tree, reporter, munch_type), outfile)
     if reporter.nerrors:
         sys.exit(1)
     return outfile

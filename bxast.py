@@ -72,6 +72,10 @@ class ENum(Expression):
     value: int
 
 @dc.dataclass
+class EBool(Expression):
+    value: bool
+
+@dc.dataclass
 class EUnOp(Expression):
     unop: str
     rvalue: Expression
