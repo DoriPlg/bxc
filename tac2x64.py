@@ -55,7 +55,6 @@ def tac_to_asm(tac_instrs):
       result = lookup_temp(result, temp_map)
       asm.append(f'movq ${args[0]}, {result}')
     elif opcode == 'copy':
-      assert len(args) == 1
       arg = lookup_temp(args[0], temp_map)
       result = lookup_temp(result, temp_map)
       asm.append(f'movq {arg}, %r11')
@@ -71,6 +70,16 @@ def tac_to_asm(tac_instrs):
                     f'{proc} {arg2}, %r11',
                     f'movq %r11, {result}'])
       else: asm.extend(proc(arg1, arg2, result))
+    elif opcode == 'label':
+      assert len(args) == 0 and result is not None
+      asm.append(f'{result}:')
+    elif opcode == 'jmp':
+      assert len(args) == 0 and result is not None
+      asm.append(f'jmp {result}')
+    elif opcode in ('jz', 'jnz', 'jl', 'jle', 'jg', 'jge'):
+      assert len(args) == 1 and result is not None
+      asm.append(f'cmpq $0, {lookup_temp(args[0], temp_map)}')
+      asm.append(f'{opcode} {result}')
     elif opcode in unops:
       assert len(args) == 1
       arg = lookup_temp(args[0], temp_map)
@@ -87,6 +96,7 @@ def tac_to_asm(tac_instrs):
                   f'movq {arg}, %rsi',
                   f'xorq %rax, %rax',
                   f'callq printf@PLT'])
+    
     else:
       assert False, f'unknown opcode: {opcode}'
   stack_size = len(temp_map)

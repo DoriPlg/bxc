@@ -9,10 +9,7 @@ KNOWN_TYPES = {'int', 'bool'}
 op_map = {
     'opposite': 'neg',
     'bitwise-negation': 'not',
-    'boolean-not': '!'
-}
-
-op_map = {
+    'boolean-not': 'not',
     'addition': 'add',
     'subtraction': 'sub',
     'multiplication': 'mul',
@@ -23,12 +20,12 @@ op_map = {
     'bitwise-xor': 'xor',
     'logical-left-shift': 'shl',
     'logical-right-shift': 'shr',
-    'equal': 'z',
-    'not-equal': 'nz',
-    'less-than': 'l',
-    'less-equal': 'le',
-    'greater-than': 'ln',
-    'greater-equal': 'nle',
+    'boolean-eq': 'z',
+    'boolean-noneq': 'nz',
+    'boolean-less': 'l',
+    'boolean-lesseq': 'le',
+    'boolean-great': 'g',
+    'boolean-greateq': 'ge',
     'boolean-and': '&&',
     'boolean-or': '||'
 }
@@ -41,7 +38,7 @@ class Munch:
         self.temp_counter = 0
         self.label_counter = 0
         self.instructions = []
-        self.symbol_table: SymbolTable
+        self.symbol_table = SymbolTable()
         self.loop_stack = []  # Stack to manage loop labels for break/continue 
 
     def new_temp(self) -> str:
@@ -52,7 +49,7 @@ class Munch:
     
     def fresh_label(self, base: str = "L") -> str:
         """Generate a new unique label name"""
-        label_name = f"%.{base}{self.label_counter}"
+        label_name = f".{base}{self.label_counter}"
         self.label_counter += 1
         return label_name
     
@@ -80,7 +77,7 @@ class Munch:
         """Generate TAC JSON from the AST"""
         instructions = self.generate_code()
         return {
-            "proc": "main",
+            "proc": "@main",
             "body": instructions if len(instructions) > 0 else [
                 {"opcode": "nop", "args": [], "result": None}]
         }
@@ -117,7 +114,7 @@ class Munch:
                 position = node.position
             )
             return
-        self.assign_or_declare(node, var['temp'])
+        self.assign_or_declare(node, var['data'])
 
     def visit_SBlock(self, node):
         """Visit a block statement"""
@@ -132,7 +129,7 @@ class Munch:
         else_label = self.fresh_label("else")
         end_label = self.fresh_label("end_if")
 
-        self.emit("jeq", [cond_temp], else_label)
+        self.emit("jz", [cond_temp], else_label)
         self.visit(node.if_block)
         self.emit("jmp", [], end_label)
 
@@ -148,7 +145,7 @@ class Munch:
         self.loop_stack.append((start_label, end_label))
         self.emit("label", [], start_label)
         cond_temp = self.visit(node.condition)
-        self.emit("jeq", [cond_temp], end_label)
+        self.emit("jz", [cond_temp], end_label)
         self.visit(node.body)
         self.emit("jmp", [], start_label)
         self.emit("label", [], end_label)
@@ -215,7 +212,6 @@ class TopDownMunch(Munch):
     """A simple top-down AST muncher that generates three-address code (TAC)"""
     def __init__(self, tree: AST, reporter : Reporter):
         super().__init__(tree, reporter)
-        self.symbol_table = TempTable()
 
     def emit(self, instruction: str, args: list = [], result: str = None):
         self.instructions.append({
@@ -244,7 +240,7 @@ class TopDownMunch(Munch):
     def visit_EVar(self, node):
         var = self.symbol_table.lookup(node.name.name)
         if var is not None:
-            return var['temp']
+            return var['data']
         self.reporter(
             f"Undeclared usage of var `{node.name.name}' -- skipping",
             position = node.position
@@ -259,9 +255,17 @@ class TopDownMunch(Munch):
     def visit_EUnOp(self, node):
         rvalue_temp = self.visit(node.rvalue)
         result_temp = self.new_temp()
-
-        op = op_map.get(node.unop, node.unop)
-        self.emit(op, [rvalue_temp], result_temp)
+        match node.unop:
+            case 'boolean-not':
+                # Special handling for boolean not
+                end_label = self.fresh_label("end_not")
+                self.emit("const", [0], result_temp)
+                self.emit("jz", [rvalue_temp], end_label)
+                self.emit("const", [1], result_temp)
+                self.emit("label", [], end_label)
+            case _:
+                op = op_map.get(node.unop, node.unop)
+                self.emit(op, [rvalue_temp], result_temp)
         return result_temp
     
     def visit_EBinOp(self, node):
@@ -271,9 +275,9 @@ class TopDownMunch(Munch):
                 end_label = self.fresh_label("end_and")
                 self.emit("const", [1], t1)  # Assume true
                 self.emit("const", [1], t2)  # Assume true
-                self.emit("copy", self.visit(node.lvalue), t1)
-                self.emit("jeq", [t1], end_label)
-                self.emit("copy", self.visit(node.rvalue), t2)
+                self.emit("copy", [self.visit(node.lvalue)], t1)
+                self.emit("jz", [t1], end_label)
+                self.emit("copy", [self.visit(node.rvalue)], t2)
                 self.emit("label", [], end_label)
                 self.emit("and", [t1, t2], t1)
                 return t1
@@ -282,14 +286,14 @@ class TopDownMunch(Munch):
                 end_label = self.fresh_label("end_or")
                 self.emit("const", [0], t1)  # Assume false
                 self.emit("const", [0], t2)  # Assume false
-                self.emit("copy", self.visit(node.lvalue), t1)
-                self.emit("jne", [t1], end_label)
-                self.emit("copy", self.visit(node.rvalue), t2)
+                self.emit("copy", [self.visit(node.lvalue)], t1)
+                self.emit("jnz", [t1], end_label)
+                self.emit("copy", [self.visit(node.rvalue)], t2)
                 self.emit("label", [], end_label)
                 self.emit("or", [t1, t2], t1)
                 return t1
-            case 'equal' | 'not-equal' | 'less-than' | 'less-equal' |\
-                  'greater-than' | 'greater-equal':
+            case 'boolean-eq' | 'boolean-noneq' | 'boolean-less' | 'boolean-lesseq' |\
+                    'boolean-great' | 'boolean-greateq':
                 left_temp = self.visit(node.lvalue)
                 right_temp = self.visit(node.rvalue)
                 result_temp = self.new_temp()
@@ -321,7 +325,6 @@ class BottomUpMunch(Munch):
     """A bottom-up AST muncher that generates three-address code (TAC)"""
     def __init__(self, tree: AST, reporter : Reporter):
         super().__init__(tree, reporter)
-        self.symbol_table = TempTable()
     
     def emit(self, instructions):
         self.instructions.extend(instructions)
@@ -364,7 +367,7 @@ class BottomUpMunch(Munch):
     def visit_EVar(self, node):
         var = self.symbol_table.lookup(node.name.name)
         if var is not None:
-            return var['temp'], []
+            return var['data'], []
         self.reporter(
             f"Undeclared usage of var `{node.name.name}' -- skipping",
             position = node.position
@@ -383,13 +386,23 @@ class BottomUpMunch(Munch):
     def visit_EUnOp(self, node):
         rvalue_temp, rvalue_instr = self.visit(node.rvalue)
         result_temp = self.new_temp()
-
-        op = op_map.get(node.unop, node.unop)
-        instr = rvalue_instr + [{
-            "opcode": op,
-            "args": [rvalue_temp],
-            "result": result_temp
-        }]
+        match node.unop:
+            case 'boolean-not':
+                # Special handling for boolean not
+                end_label = self.fresh_label("end_not")
+                instr = rvalue_instr + [
+                    {"opcode": "const", "args": [0], "result": result_temp},
+                    {"opcode": "jz", "args": [rvalue_temp], "result": end_label},
+                    {"opcode": "const", "args": [1], "result": result_temp},
+                    {"opcode": "label", "args": [], "result": end_label}
+                ]
+            case _:
+                op = op_map.get(node.unop, node.unop)
+                instr = rvalue_instr + [{
+                    "opcode": op,
+                    "args": [rvalue_temp],
+                    "result": result_temp
+                }]
         return result_temp,instr
 
     def visit_EBinOp(self, node):
@@ -403,7 +416,7 @@ class BottomUpMunch(Munch):
                 ]
                 left_temp, left_instr = self.visit(node.lvalue)
                 instr += left_instr + [{"opcode": "copy", "args": [left_temp], "result": t1}]
-                instr += [{"opcode": "jeq", "args": [t1], "result": end_label}]
+                instr += [{"opcode": "jz", "args": [t1], "result": end_label}]
                 right_temp, right_instr = self.visit(node.rvalue)
                 instr += right_instr + [{"opcode": "copy", "args": [right_temp], "result": t2}]
                 instr += [{"opcode": "label", "args": [], "result": end_label}]
@@ -418,14 +431,14 @@ class BottomUpMunch(Munch):
                 ]
                 left_temp, left_instr = self.visit(node.lvalue)
                 instr += left_instr + [{"opcode": "copy", "args": [left_temp], "result": t1}]
-                instr += [{"opcode": "jne", "args": [t1], "result": end_label}]
+                instr += [{"opcode": "jnz", "args": [t1], "result": end_label}]
                 right_temp, right_instr = self.visit(node.rvalue)
                 instr += right_instr + [{"opcode": "copy", "args": [right_temp], "result": t2}]
                 instr += [{"opcode": "label", "args": [], "result": end_label}]
                 instr += [{"opcode": "or", "args": [t1, t2], "result": t1}]
                 return t1,instr
-            case 'equal' | 'not-equal' | 'less-than' | 'less-equal' |\
-                    'greater-than' | 'greater-equal':
+            case 'boolean-eq' | 'boolean-noneq' | 'boolean-less' | 'boolean-lesseq' |\
+                    'boolean-great' | 'boolean-greateq':
                 left_temp, left_instr = self.visit(node.lvalue)
                 right_temp, right_instr = self.visit(node.rvalue)
                 result_temp = self.new_temp()
@@ -464,10 +477,31 @@ class TypeMunch(Munch):
     """A type-checking AST muncher that annotates the AST with types"""
     def __init__(self, tree: AST, reporter : Reporter):
         super().__init__(tree, reporter)
-        self.symbol_table = TypeTable()
     
     def emit(self, *instructions):
         pass  # No instructions to emit for type checking
+
+    def handle_decl_or_assign(self, node, declare):
+        if declare:
+            res = self.symbol_table.declare(
+                node.name.name,
+                node.type, node.position
+            )
+            if not res:
+                self.reporter(
+                    f"Double declare of var `{node.name.name}' -- skipping",
+                    position = node.position
+                )
+                return
+        var = self.symbol_table.lookup(node.name.name)
+        if var is None:
+            self.reporter(
+                f"Undeclared usage of var `{node.name.name}' -- skipping",
+                position = node.position
+            )
+            return
+        node.type = var['data']
+        self.assign_or_declare(node, var['data'])
 
     def assign_or_declare(self, node, temp: str):
         """
@@ -496,8 +530,8 @@ class TypeMunch(Munch):
     def visit_EVar(self, node):
         var = self.symbol_table.lookup(node.name.name)
         if var is not None:
-            node.type = var['type']
-            return var['type']
+            node.type = var['data']
+            return var['data']
         self.reporter(
             f"Undeclared usage of var `{node.name.name}' -- skipping",
             position = node.position
@@ -546,7 +580,7 @@ class TypeMunch(Munch):
             case    'addition' | 'subtraction' | 'multiplication' |\
                     'division' | 'modulus' | 'bitwise-and' | 'bitwise-or' |\
                     'bitwise-xor' | 'logical-left-shift' | 'logical-right-shift'|\
-                    'less-than' | 'less-equal' | 'greater-than' | 'greater-equal':
+                    'boolean-less' | 'boolean-lesseq' | 'boolean-great' | 'boolean-greateq':
                 if ltype != 'int' or rtype != 'int':
                     self.reporter(
                         f"Type error: binary {node.binop\
@@ -565,7 +599,7 @@ class TypeMunch(Munch):
                     return None
                 node.type = 'bool'
                 return 'bool'
-            case    'equal' | 'not-equal':
+            case    'boolean-eq' | 'boolean-noneq':
                 if ltype != rtype:
                     self.reporter(
                         f"Type error: binary {node.binop\
@@ -591,12 +625,6 @@ class SymbolTable:
     def __init__(self):
         self.scopes = [{}]  # Stack of symbol tables for nested scopes
     
-    @abstractmethod
-    def declare(self, name: str, value: str, position: Range):
-        """Declare a variable in the current scope.
-        Returns True if successful, False if already declared in current scope."""
-        pass
-    
     def lookup(self, name: str):
         """Look up a variable in the symbol table stack.
         Returns the variable info if found, None otherwise."""
@@ -613,7 +641,6 @@ class SymbolTable:
         """Pop the current scope from the stack."""
         self.scopes.pop()
 
-class TypeTable(SymbolTable):
     def declare(self, name: str, var_type: str, position: Range):
         """
          Declare a variable in the current scope.
@@ -621,22 +648,9 @@ class TypeTable(SymbolTable):
          """
         if name in self.scopes[-1]:
             return False  # Already declared in current scope
-        self.scopes[-1][name] = {'type': var_type,
+        self.scopes[-1][name] = {'data': var_type,
                                  'position': position}
         return True
-
-class TempTable(SymbolTable):
-    def declare(self, name: str, temp: str, position: Range):
-        """
-         Declare a variable in the current scope.
-         Returns True if successful, False if already declared in current scope.
-         """
-        if name in self.scopes[-1]:
-            return False  # Already declared in current scope
-        self.scopes[-1][name] = {'temp': temp,
-                                 'position': position}
-        return True
-
 
 # ================  Utility Functions ============
 def fitting_type(dest: str, expr_type: str) -> bool:

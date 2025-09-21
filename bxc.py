@@ -13,7 +13,7 @@ def _run_parser():
         print(f"Usage: {sys.argv[0]} [filename.bx...]", file = sys.stderr)
         exit(1)
     filename = sys.argv[2] if len(sys.argv) > 2 else sys.argv[1]
-    outfile = f"out/{filename.split('.')[0].split('/')[-1]}.tac.json"
+    outfile = f"out/{filename.split('.')[-2].split('/')[-1]}.tac.json"
     with open(filename, "r", encoding="UTF-8") as stream:
         contents = stream.read()
 
@@ -63,8 +63,7 @@ def munch_for_type(tree: AST, reporter: Reporter):
 
 def munch_gen_json(mm: Munch, outfile: str):
     with open(outfile, "w", encoding="UTF-8") as outfile:
-        json.dump(mm.munch(), outfile, indent=4)
+        json.dump([mm.munch()], outfile, indent=4)
     print(f"Wrote TAC to {outfile}")
 
-if __name__=="__main__":
-    compile_tac(_run_parser())
+compile_tac(_run_parser())
